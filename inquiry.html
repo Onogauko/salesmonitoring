@@ -25,8 +25,8 @@ body.drag .toolbar{background:#fff6cc}
 
 /* layout */
 .wrap{position:relative;overflow:hidden;margin:0 auto}
-.page{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:6px;padding:3px;width:1566px;transform-origin:0 0}
-.left{flex:0 0 838px;min-width:0}
+.page{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:6px;padding:3px;width:1414px;transform-origin:0 0}
+.left{flex:0 0 686px;min-width:0}
 .right{flex:0 0 716px;min-width:0}
 
 /* hourly detail pop-up */
@@ -51,7 +51,6 @@ table.rpt{border-collapse:collapse;width:100%;background:#fff}
 .rpt td.n{text-align:right;white-space:nowrap}
 .rpt td.nm{width:106px;min-width:106px;max-width:110px;line-height:1.15}
 .rpt td.b{width:54px;text-align:center}
-.rpt tr.sel td{background:#fff3c4!important}
 .rpt tfoot td{border:1px solid #d4d4d4;height:24px;background:#fff}
 .rpt tfoot td.lbl{text-align:center}
 .empty{padding:10px;border:1px solid #c6c6c6;border-top:0;color:#666}
@@ -177,19 +176,19 @@ function storeTable(){
   const S = state.store;
   const head = `<table class="rpt"><thead>
     <tr><th rowspan="2" style="width:62px">Company<br>Name</th><th rowspan="2" style="width:40px">Store<br>Code</th>
-        <th rowspan="2" colspan="2">Store Name</th><th colspan="5">Total</th></tr>
+        <th rowspan="2" colspan="2">Store Name</th><th colspan="4">Total</th></tr>
     <tr><th>Store Sales</th><th style="width:78px">D.B. %</th><th style="width:80px">Last Yr<br>Sales %</th>
-        <th style="width:84px">Customer<br>Number</th><th>Grand Sales</th></tr></thead>`;
+        <th style="width:84px">Customer<br>Number</th></tr></thead>`;
   if (!S) return head + `</table><div class="empty">Belum ada data. Upload <b>HourlySlsRptByStoreCsv</b>.</div>`;
   const recs = S.recs.filter(r => +r.code <= MAX_STORE);
   let h = head + '<tbody>';
   recs.forEach((r, i) => {
     const sel = state.detail && state.detail.kind === 'store' && state.detail.code === r.code;
-    h += `<tr class="${r.code === state.sel ? 'sel' : ''}">
+    h += `<tr>
       <td class="c">${i === 0 ? esc(r.company) : ''}</td><td class="c">${esc(r.code)}</td>
       <td class="nm">${esc(r.name)}</td><td class="b">${btn(`data-kind="store" data-code="${esc(r.code)}"`, sel)}</td>
       <td class="n">${fAmt(r.sale)}</td><td class="n">${fPct(r.db)}</td><td class="n">${fPct(r.ly)}</td>
-      <td class="n">${fCnt(r.cust)}</td><td class="n">${fAmt(r.grand != null ? r.grand : r.sale)}</td></tr>`;
+      <td class="n">${fCnt(r.cust)}</td></tr>`;
   });
   return h + '</tbody></table>';
 }
