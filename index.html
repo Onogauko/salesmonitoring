@@ -1,1 +1,592 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Store Performance Dashboard</title>
+<style>
+:root{
+  --bg:#1b1b1b; --stage:#252525; --panel:#262626; --gold:#F2C000; --text:#fff; --muted:#a8a8a8;
+  --sales:#FFC000; --budget:#2EA8E0; --teal:#1F5C73; --green:#60B42C; --red:#FF0000; --needle:#1BA1E2;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,"Segoe UI",sans-serif}
 
+/* ---------- toolbar ---------- */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;background:#141414;border-bottom:1px solid var(--gold);font-size:12px}
+.toolbar b{font-style:italic}
+.btn{background:#2c2c2c;color:#fff;border:1px solid var(--gold);padding:4px 10px;font:bold 12px Arial,sans-serif;cursor:pointer;border-radius:0}
+.btn:hover{background:#3a3a3a}
+.btn.ghost{border-color:#666;font-weight:normal}
+.chip{padding:3px 7px;border:1px solid #555;color:#999;font-size:11px}
+.chip.ok{border-color:var(--green);color:#d4f0c4}
+.chip.ok::before{content:"\2713  "}
+.toolbar select,.toolbar input{background:#2c2c2c;color:#fff;border:1px solid #666;font:12px Arial,sans-serif;padding:3px 4px;border-radius:0}
+.toolbar input[type=number]{width:62px}
+.sep{width:1px;height:20px;background:#444}
+.msg{color:#ff9d9d;font-size:11px}
+body.drag .toolbar{background:#3a3000}
+
+/* ---------- stage (desktop = 863 x 701, scaled to fit) ---------- */
+.wrap{margin:8px auto;position:relative}
+.stage{width:863px;height:701px;background:var(--stage);transform-origin:0 0;display:grid;grid-template-columns:530px 333px;font-size:12px;overflow:hidden}
+.col{display:flex;flex-direction:column;min-width:0}
+.panel{border:1px solid var(--gold);background:var(--panel);margin:2px;position:relative;overflow:hidden}
+.hdr{height:30px;display:flex;align-items:center;justify-content:center;font:italic bold 21px Arial,"Segoe UI",sans-serif;white-space:nowrap}
+.gauge{height:288px}
+.row2{display:flex}
+.row2>.panel{flex:1 1 0;min-width:0}
+.title{height:34px;display:flex;align-items:center;justify-content:center;font:bold 15px Arial,"Segoe UI",sans-serif}
+.donut{height:333px}
+.tbl{height:315px;padding:3px 1px 0}
+.chart{flex:1;min-height:0}
+.chart>svg{position:absolute;inset:0}
+.stage svg{display:block;width:100%;height:100%}
+svg text{font-family:Arial,"Segoe UI",sans-serif}
+
+.st{width:100%;border-collapse:collapse;font-size:11.5px}
+.st td{padding:0 5px;height:20px;white-space:nowrap}
+.st td.n{text-align:right}
+.st td.no{width:24px}
+.st tbody tr{cursor:pointer}
+.st tbody tr:hover td{background:#333}
+.st tr.sel td{color:var(--gold);font-weight:bold}
+.st tr.sum td{font-weight:bold;height:30px;padding-top:8px}
+
+/* ---------- detail (Line / Division / Hourly) ---------- */
+.detail{margin:0 auto 24px;display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:0}
+.detail .panel{background:var(--stage);min-width:0}
+.detail h3{margin:0;padding:6px 8px;font:italic bold 14px Arial,"Segoe UI",sans-serif;border-bottom:1px solid var(--gold)}
+.dt{width:100%;border-collapse:collapse;font-size:11px}
+.dt th{color:var(--muted);font-weight:normal;text-align:right;padding:4px 5px;border-bottom:1px solid #444;white-space:nowrap}
+.dt td{padding:3px 5px;text-align:right;border-bottom:1px solid #303030;white-space:nowrap}
+.dt td:first-child,.dt th:first-child{text-align:left}
+.dt tfoot td{font-weight:bold;border-top:1px solid var(--gold);border-bottom:0}
+.dt .bar{display:inline-block;height:8px;background:var(--sales);vertical-align:middle;margin-right:4px}
+.dt .na{color:#777}
+.note{font-size:10.5px;color:var(--muted);padding:6px 8px;line-height:1.45}
+.note .ok{color:#9be07a}.note .warn{color:#ffb35c}
+.scroll{overflow-x:auto}
+
+@media (max-width:1000px){.detail{grid-template-columns:1fr}}
+@media (max-width:760px){
+  .chart>svg{position:static}
+  .wrap{width:auto!important;height:auto!important;margin:6px}
+  .stage{width:auto;height:auto;transform:none!important;display:block}
+  .gauge,.donut,.tbl,.chart{height:auto}
+  .stage svg{height:auto}
+  .tbl{overflow-x:auto;padding-bottom:4px}
+  .st{min-width:330px;font-size:13px}
+  .st td{height:24px}
+  .hdr{font-size:18px}
+  .detail{width:auto!important;margin:0 6px 20px}
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar" id="toolbar">
+  <label class="btn" for="file">Upload CSV</label>
+  <input type="file" id="file" accept=".csv,text/csv" multiple hidden>
+  <span class="chip" id="c-store">Store</span>
+  <span class="chip" id="c-div">Division</span>
+  <span class="chip" id="c-line">Line</span>
+  <span class="chip" id="c-target" title="Opsional: Yesterday Sales/Budget, MTD Sales/Budget, Target Min">Target (opsional)</span>
+  <span class="sep"></span>
+  <label>Store <select id="sel"></select></label>
+  <label title="Isi manual bila tidak ada di file target">Target Min % <input type="number" id="tmin" step="0.1" min="0" max="125" placeholder="N/A"></label>
+  <button class="btn ghost" id="tpl" title="Unduh template CSV target/budget (kolom kosong untuk diisi)">Template Target</button>
+  <button class="btn ghost" id="reset">Reset</button>
+  <span class="msg" id="msg"></span>
+</div>
+
+<div class="wrap" id="wrap">
+  <div class="stage" id="stage">
+    <div class="col">
+      <div class="panel hdr" id="hdrL">PERFORMANCE</div>
+      <div class="panel gauge" id="gauge"></div>
+      <div class="row2">
+        <div class="panel title">YESTERDAY SALES</div>
+        <div class="panel title">MTD SALES ACHIEVE</div>
+      </div>
+      <div class="row2">
+        <div class="panel donut" id="dYes"></div>
+        <div class="panel donut" id="dMtd"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel hdr">AEON INDONESIA</div>
+      <div class="panel tbl" id="tbl"></div>
+      <div class="panel chart" id="chart"></div>
+    </div>
+  </div>
+</div>
+
+<div class="detail" id="detail">
+  <div class="panel" id="pHour"></div>
+  <div class="panel" id="pLine"></div>
+  <div class="panel" id="pDiv"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ================= config ================= */
+const STORE_ABBR = {1001:'BSD',1002:'JGC',1003:'SC',1004:'TJB',1005:'DTM',1006:'ALS',1007:'KWS',
+  1008:'MCT',1009:'PMB',1010:'EVR',1011:'PVJ',1012:'DPM',1013:'PMS',1014:'EMP'};
+const DEFAULT_STORE = '1008';
+const GAUGE_MAX = 125;
+const LS_KEY = 'slsdash:v1';
+const DEFAULT_SLOTS = ['08:00 - 11:59','12:00 - 13:59','14:00 - 15:59','16:00 - 17:59',
+  '18:00 - 19:59','20:00 - 21:59','22:00 - 23:59','24:00'];
+
+const state = { store:null, div:null, line:null, target:null, raw:{}, sel:null };
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fInt = n => (n == null || !isFinite(n)) ? 'N/A' : Math.round(n).toLocaleString('en-US');
+const fPct = (n, d=2) => (n == null || !isFinite(n)) ? 'N/A' : n.toFixed(d) + '%';
+const num = v => { if (v == null) return 0; const t = String(v).trim().replace(/,/g,''); if (t === '') return 0; const n = Number(t); return isFinite(n) ? n : 0; };
+const numOrNull = v => { if (v == null) return null; const t = String(v).trim().replace(/,/g,'').replace(/%$/,''); if (t === '') return null; const n = Number(t); return isFinite(n) ? n : null; };
+const abbr = r => STORE_ABBR[r.code] || r.name.replace(/^AEON\s+/i,'');
+const tw = (s, px) => String(s).length * px * 0.62;  // rough text width
+
+function parseCSV(text){
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (q){
+      if (c === '"'){ if (text[i+1] === '"'){ f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r'){
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(f); rows.push(row); row = []; f = '';
+    } else f += c;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+/* Hourly report (Store / Division / Line). Columns are located from row 2,
+   because the group labels in row 1 are offset from the data columns. */
+function parseReport(text){
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error('file kosong');
+  const h0 = rows[0].map(s => s.trim()), h1 = rows[1].map(s => s.trim());
+  const low = h0.map(s => s.toLowerCase());
+  if (low.includes('store code') && ['yesterday sales','yesterday budget','mtd sales','mtd budget','target min'].some(k => low.includes(k)))
+    return parseTarget(rows);
+
+  const ti = h1.indexOf('Store Sale $');
+  if (ti < 0) throw new Error('kolom "Store Sale $" tidak ditemukan');
+  const type = h0[3] === 'Division' ? 'div' : h0[3] === 'Line' ? 'line' : 'store';
+  const slotIdx = [];
+  h1.forEach((h, i) => { if (i > ti && h === 'Sale $') slotIdx.push(i); });
+  let labels = h0.filter(s => /\d{1,2}:\d{2}/.test(s));
+  if (labels.length !== slotIdx.length) labels = DEFAULT_SLOTS.slice(0, slotIdx.length);
+  labels = labels.map(l => l.replace(/\b(\d):(\d{2})/g, '0$1:$2'));
+
+  const pick = r => ({
+    sale: num(r[ti]), db: num(r[ti+1]), ly: num(r[ti+2]), cust: num(r[ti+3]),
+    slots: slotIdx.map(i => ({ sale: num(r[i]), db: num(r[i+1]), ly: num(r[i+2]), cust: num(r[i+3]) }))
+  });
+  const recs = []; let footer = null;
+  for (const r of rows.slice(2)){
+    const c0 = (r[0] || '').trim();
+    if (/total/i.test(c0)) { footer = Object.assign({ label: c0 }, pick(r)); continue; }
+    if (!(r[1] || '').trim()) continue;
+    recs.push(Object.assign({
+      company: c0, code: (r[1] || '').trim(), name: (r[2] || '').trim(),
+      key: type === 'store' ? null : (r[3] || '').trim()
+    }, pick(r)));
+  }
+  return { type, labels, recs, footer, stores: [...new Set(recs.map(r => r.code))] };
+}
+
+/* Optional target/budget file:
+   Store Code, Yesterday Sales, Yesterday Budget, MTD Sales, MTD Budget, Target Min */
+function parseTarget(rows){
+  const h = rows[0].map(s => s.trim().toLowerCase());
+  const col = k => h.indexOf(k);
+  const C = { code: col('store code'), ys: col('yesterday sales'), yb: col('yesterday budget'),
+              ms: col('mtd sales'), mb: col('mtd budget'), tm: col('target min') };
+  const by = {};
+  for (const r of rows.slice(1)){
+    const code = (r[C.code] || '').trim(); if (!code) continue;
+    const g = i => i < 0 ? null : numOrNull(r[i]);
+    by[code] = { ys: g(C.ys), yb: g(C.yb), ms: g(C.ms), mb: g(C.mb), tm: g(C.tm) };
+  }
+  return { type: 'target', by };
+}
+
+/* ================= SVG geometry ================= */
+const P = (cx, cy, r, deg) => { const a = deg * Math.PI / 180; return [cx + r * Math.cos(a), cy - r * Math.sin(a)]; };
+// annular sector from angle a1 to a2 going clockwise on screen (a1 > a2, degrees, 0 = east, 90 = north)
+function sector(cx, cy, r1, r2, a1, a2){
+  const lg = (a1 - a2) > 180 ? 1 : 0;
+  const [x1, y1] = P(cx, cy, r2, a1), [x2, y2] = P(cx, cy, r2, a2);
+  if (r1 <= 0) return `M${cx},${cy}L${x1.toFixed(2)},${y1.toFixed(2)}A${r2},${r2} 0 ${lg} 1 ${x2.toFixed(2)},${y2.toFixed(2)}Z`;
+  const [x3, y3] = P(cx, cy, r1, a2), [x4, y4] = P(cx, cy, r1, a1);
+  return `M${x1.toFixed(2)},${y1.toFixed(2)}A${r2},${r2} 0 ${lg} 1 ${x2.toFixed(2)},${y2.toFixed(2)}` +
+         `L${x3.toFixed(2)},${y3.toFixed(2)}A${r1},${r1} 0 ${lg} 0 ${x4.toFixed(2)},${y4.toFixed(2)}Z`;
+}
+function mix(a, b, t){
+  const h = s => [1,3,5].map(i => parseInt(s.substr(i, 2), 16));
+  const A = h(a), B = h(b);
+  return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+const GAUGE_STOPS = [[0,'#FF0000'],[50,'#FFD000'],[92,'#60B42C'],[125,'#60B42C']];
+function gaugeColor(p){
+  for (let i = 1; i < GAUGE_STOPS.length; i++){
+    const [p1, c1] = GAUGE_STOPS[i-1], [p2, c2] = GAUGE_STOPS[i];
+    if (p <= p2) return mix(c1, c2, (p - p1) / (p2 - p1));
+  }
+  return GAUGE_STOPS[GAUGE_STOPS.length - 1][1];
+}
+function label(x, y, txt, opt = {}){
+  const fs = opt.fs || 12, pad = opt.pad == null ? 5 : opt.pad, w = tw(txt, fs) + pad * 2, h = fs + 8;
+  let bx = x - w / 2; bx = Math.max(opt.minX ?? 1, Math.min((opt.maxX ?? 9999) - w, bx));
+  return `<rect x="${bx.toFixed(1)}" y="${(y - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h}" fill="${opt.fill || 'var(--teal)'}"/>` +
+         `<text x="${(bx + w / 2).toFixed(1)}" y="${(y + fs * 0.36).toFixed(1)}" text-anchor="middle" font-size="${fs}" font-weight="${opt.fw || 'normal'}" fill="#fff">${esc(txt)}</text>`;
+}
+
+/* ================= renderers ================= */
+function lastActive(rec){
+  let k = -1; if (rec) rec.slots.forEach((s, i) => { if (s.sale || s.cust) k = i; });
+  return k;
+}
+
+function renderGauge(rec, labels, tmin){
+  const W = 526, H = 288, CX = 280, CY = 226, R = 124, TH = 23, BASE = 247, TOP = 66;
+  const pd = p => 180 - Math.max(0, Math.min(GAUGE_MAX, p)) / GAUGE_MAX * 180;
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+
+  // info top-left
+  const la = lastActive(rec);
+  s += `<text x="9" y="21" font-size="13" font-weight="bold" font-style="italic" fill="#fff">Per/Jam</text>`;
+  s += `<text x="100" y="21" font-size="13" font-weight="bold" fill="#fff">${esc(la >= 0 ? labels[la] : '-')}</text>`;
+  s += `<text x="9" y="39" font-size="13" font-weight="bold" fill="#fff">Target Min</text>`;
+  s += `<text x="100" y="39" font-size="13" font-weight="bold" fill="#fff">${tmin == null ? 'N/A' : esc(fPct(tmin, 1))}</text>`;
+
+  // customer top-right
+  s += `<text x="516" y="31" text-anchor="end" font-size="15" font-weight="bold" font-style="italic" fill="#fff">` +
+       `Customer No<tspan dx="10">${rec ? fInt(rec.cust) : '-'}</tspan></text>`;
+  if (rec) s += `<text x="516" y="48" text-anchor="end" font-size="10.5" fill="#bdbdbd">DB % ${fPct(rec.db)}   ·   Last Yr ${rec.ly ? fPct(rec.ly) : 'N/A'}</text>`;
+
+  // gauge arc
+  const N = 120;
+  for (let i = 0; i < N; i++){
+    const p1 = i / N * GAUGE_MAX, p2 = (i + 1) / N * GAUGE_MAX;
+    s += `<path d="${sector(CX, CY, R - TH, R, pd(p1), Math.max(0, pd(p2) - 0.4))}" fill="${gaugeColor((p1 + p2) / 2)}"/>`;
+  }
+  s += `<text x="${CX - R + TH + 3}" y="${CY + 5}" font-size="9" fill="#fff">0% Min</text>`;
+  s += `<text x="${CX + R - TH / 2}" y="${CY + 4}" text-anchor="middle" font-size="9" fill="#fff">${GAUGE_MAX}%</text>`;
+  s += `<text x="${CX + R - TH / 2}" y="${CY + 14}" text-anchor="middle" font-size="9" fill="#fff">Max</text>`;
+
+  if (tmin != null){
+    const a = pd(tmin), [x1, y1] = P(CX, CY, R - TH - 5, a), [x2, y2] = P(CX, CY, R + 5, a);
+    s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="2.5"><title>Target Min ${fPct(tmin,1)}</title></line>`;
+  }
+
+  // hourly cumulative progression
+  const n = labels.length, sw = W / n, xs = labels.map((_, i) => (i + 0.5) * sw);
+  s += `<line x1="0" y1="${BASE}" x2="${W}" y2="${BASE}" stroke="#4a4a4a"/>`;
+  if (rec){
+    let cum = 0;
+    const cums = rec.slots.map(x => (cum += x.sale));
+    const max = Math.max(1, ...cums);
+    const pts = xs.map((x, i) => [x, i <= la ? BASE - cums[i] / max * (BASE - TOP) : BASE]);
+    s += `<polyline points="${pts.map(p => p.map(v => v.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="#A3A02A" stroke-width="1.6"/>`;
+    pts.forEach(([x, y], i) => {
+      if (i <= la){
+        s += `<g><title>${esc(labels[i])}\nSales slot: ${fInt(rec.slots[i].sale)}\nKumulatif: ${fInt(cums[i])}\nCustomer: ${fInt(rec.slots[i].cust)}</title>` +
+             label(x, y - 14, fInt(cums[i]), { fs: 12.5, maxX: W - 1 }) + `</g>`;
+      } else {
+        s += label(x, BASE, '-', { fs: 10, pad: 4 });
+      }
+    });
+  }
+
+  // needle + value
+  if (rec){
+    const v = rec.db, a = pd(v);
+    const [x1, y1] = P(CX, CY, 46, a), [x2, y2] = P(CX, CY, R + 6, a), [tx, ty] = P(CX, CY, R + 20, a);
+    s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--needle)" stroke-width="4.5"><title>DB % (pencapaian vs budget harian): ${fPct(v)}</title></line>`;
+    s += `<text x="${tx.toFixed(1)}" y="${(ty + 4).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" font-style="italic" fill="#fff">${fPct(v, 1)}</text>`;
+    s += `<text x="${CX}" y="${CY - 18}" text-anchor="middle" font-size="17" font-weight="bold" font-style="italic" fill="#fff">${fInt(rec.sale)}</text>`;
+  } else {
+    s += `<text x="${CX}" y="${CY - 18}" text-anchor="middle" font-size="13" font-style="italic" fill="#bbb">Upload file CSV</text>`;
+  }
+
+  // x axis labels
+  labels.forEach((l, i) => {
+    const [a, b] = l.split(/\s*-\s*/);
+    s += `<text x="${xs[i].toFixed(1)}" y="${b ? 266 : 273}" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#e6e6e6">${esc(b ? a + ' -' : a)}</text>`;
+    if (b) s += `<text x="${xs[i].toFixed(1)}" y="${281}" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#e6e6e6">${esc(b)}</text>`;
+  });
+  return s + '</svg>';
+}
+
+/* Achievement donut. top = Sales, pct = Sales / Budget, bottom = Sales - Budget.
+   Values only come from the optional target file; otherwise N/A. */
+function renderDonut(d, color, light){
+  const W = 246, H = 333, CX = 123, CY = 178, R2 = 77, R1 = 61, RI = 56, NSEG = 24, GAP = 2.2;
+  const pct = (d && d.sales != null && d.budget) ? d.sales / d.budget * 100 : null;
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  s += `<text x="${CX}" y="62" text-anchor="middle" font-size="17" font-weight="bold" fill="#fff">${d && d.sales != null ? fInt(d.sales) : 'N/A'}</text>`;
+  s += `<text x="${CX}" y="77" text-anchor="middle" font-size="9" fill="#8d8d8d">Sales</text>`;
+
+  const f = pct == null ? 0 : Math.min(pct, 100) / 100;
+  const e = pct == null ? 0 : Math.max(0, Math.min(pct - 100, 100)) / 100;
+  const dim = pct == null ? '#3a3a3a' : '#4a4a4a';
+  const ang = t => 90 - t * 360;
+  for (let i = 0; i < NSEG; i++){
+    const t1 = i / NSEG, t2 = (i + 1) / NSEG;
+    const a1 = ang(t1) - GAP / 2, a2 = ang(t2) + GAP / 2;
+    const segCol = t => (e > 0 && t >= 1 - e) ? light : (t < f ? color : dim);
+    // split segment where the colour changes
+    const cuts = [t1, t2];
+    [f, 1 - e].forEach(c => { if (c > t1 && c < t2) cuts.splice(1, 0, c); });
+    cuts.sort((x, y) => x - y);
+    for (let k = 0; k < cuts.length - 1; k++){
+      const s1 = k === 0 ? a1 : ang(cuts[k]), s2 = k === cuts.length - 2 ? a2 : ang(cuts[k + 1]);
+      s += `<path d="${sector(CX, CY, R1, R2, s1, s2)}" fill="${segCol((cuts[k] + cuts[k + 1]) / 2)}"/>`;
+    }
+  }
+  s += `<circle cx="${CX}" cy="${CY}" r="${RI}" fill="#232323" stroke="#f2f2f2" stroke-width="2"/>`;
+  if (e > 0){
+    s += e >= 1 ? `<circle cx="${CX}" cy="${CY}" r="${RI - 1}" fill="#8c8c8c"/>`
+                : `<path d="${sector(CX, CY, 0, RI - 1, ang(1 - e), ang(1))}" fill="#8c8c8c"/>`;
+  }
+  s += `<text x="${CX}" y="${CY + 11}" text-anchor="middle" font-size="${pct == null ? 22 : 30}" font-weight="bold" font-style="italic" fill="${pct == null ? '#9a9a9a' : '#fff'}">${pct == null ? 'N/A' : Math.round(pct) + '%'}</text>`;
+
+  const diff = pct == null ? null : d.sales - d.budget;
+  s += `<text x="${CX}" y="294" text-anchor="middle" font-size="9" fill="#8d8d8d">Sales − Budget</text>`;
+  s += `<text x="${CX}" y="317" text-anchor="middle" font-size="17" font-weight="bold" fill="${diff != null && diff < 0 ? '#ff7a7a' : '#fff'}">${diff == null ? 'N/A' : fInt(diff)}</text>`;
+  return s + '</svg>';
+}
+
+function renderTable(rows, sel){
+  if (!rows.length) return `<div class="note">Belum ada data store. Upload <b>HourlySlsRptByStoreCsv</b>.</div>`;
+  let h = '<table class="st"><tbody>';
+  rows.forEach((r, i) => {
+    h += `<tr data-code="${esc(r.code)}" class="${r.code === sel ? 'sel' : ''}" title="${esc(r.name)}&#10;Sales ${fInt(r.sale)}&#10;DB % ${fPct(r.db)}&#10;Last Yr ${r.ly ? fPct(r.ly) : 'N/A'}&#10;Customer ${fInt(r.cust)}">` +
+         `<td class="no">${i + 1}</td><td>${esc(r.code)} ${esc(abbr(r))}</td>` +
+         `<td class="n">${fInt(r.sale)}</td><td class="n">${fPct(r.db, 1)}</td></tr>`;
+  });
+  const tot = rows.reduce((a, r) => a + r.sale, 0);
+  h += `</tbody><tfoot><tr class="sum"><td colspan="2">AEON INDONESIA</td><td class="n">${fInt(tot)}</td><td></td></tr></tfoot></table>`;
+  return h;
+}
+
+function renderChart(rows, target){
+  const W = 327, H = 360, X0 = 6, X1 = W - 4, BOT = 336, TOP = 92;
+  const mtd = target && rows.some(r => target.by[r.code] && target.by[r.code].ms != null);
+  const data = rows.map(r => {
+    const t = target && target.by[r.code];
+    if (mtd) return { r, a: t ? t.ms : null, b: t ? t.mb : null, p: t && t.ms != null && t.mb ? t.ms / t.mb * 100 : null };
+    return { r, a: r.sale, b: null, p: r.db };
+  });
+  const hasB = data.some(d => d.b != null);
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+
+  // legend
+  const l1 = mtd ? 'MTD Sales' : 'Sales Hari Ini', l2 = hasB ? 'MTD Budget' : 'MTD Budget (N/A)';
+  const lw = 14 + tw(l1, 10) + 18 + 14 + tw(l2, 10);
+  let lx = (W - lw) / 2;
+  s += `<rect x="${lx}" y="10" width="9" height="9" fill="var(--sales)"/><text x="${lx + 13}" y="18.5" font-size="10" fill="#fff">${l1}</text>`;
+  lx += 14 + tw(l1, 10) + 18;
+  s += `<rect x="${lx}" y="10" width="9" height="9" fill="${hasB ? 'var(--budget)' : '#555'}"/><text x="${lx + 13}" y="18.5" font-size="10" fill="${hasB ? '#fff' : '#888'}">${l2}</text>`;
+  if (!mtd && rows.length) s += `<text x="${W / 2}" y="32" text-anchor="middle" font-size="8.5" fill="#8d8d8d">label % = DB % (pencapaian vs budget harian) · data MTD belum tersedia</text>`;
+
+  if (!rows.length) return s + '</svg>';
+  const n = data.length, gw = (X1 - X0) / n;
+  const max = Math.max(1, ...data.map(d => Math.max(d.a || 0, d.b || 0)));
+  const bw = hasB ? gw * 0.34 : gw * 0.5;
+  data.forEach((d, i) => {
+    const gx = X0 + i * gw, cx = gx + gw / 2;
+    const ya = d.a ? BOT - d.a / max * (BOT - TOP) : BOT;
+    if (hasB){
+      const yb = d.b ? BOT - d.b / max * (BOT - TOP) : BOT;
+      s += `<rect x="${(cx - bw - 0.5).toFixed(1)}" y="${ya.toFixed(1)}" width="${bw.toFixed(1)}" height="${(BOT - ya).toFixed(1)}" fill="var(--sales)"><title>${esc(d.r.code)} ${esc(abbr(d.r))} — ${l1}: ${fInt(d.a)}</title></rect>`;
+      s += `<rect x="${(cx + 0.5).toFixed(1)}" y="${yb.toFixed(1)}" width="${bw.toFixed(1)}" height="${(BOT - yb).toFixed(1)}" fill="var(--budget)"><title>${esc(d.r.code)} ${esc(abbr(d.r))} — MTD Budget: ${fInt(d.b)}</title></rect>`;
+    } else {
+      s += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${ya.toFixed(1)}" width="${bw.toFixed(1)}" height="${(BOT - ya).toFixed(1)}" fill="var(--sales)"><title>${esc(d.r.code)} ${esc(abbr(d.r))} — ${l1}: ${fInt(d.a)}</title></rect>`;
+    }
+    s += `<text x="${cx.toFixed(1)}" y="${BOT + 13}" text-anchor="middle" font-size="8.5" fill="#ddd">${esc(abbr(d.r))}</text>`;
+  });
+
+  // achievement labels connected by a line
+  const ps = data.map(d => d.p).filter(p => p != null);
+  if (ps.length){
+    const pmin = Math.min(...ps), pmax = Math.max(...ps);
+    const pts = data.map((d, i) => d.p == null ? null : [X0 + (i + 0.5) * gw, 76 - (pmax > pmin ? (d.p - pmin) / (pmax - pmin) : 0.5) * 30]);
+    const valid = pts.filter(Boolean);
+    s += `<polyline points="${valid.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')}" fill="none" stroke="var(--budget)" stroke-width="1.5"/>`;
+    pts.forEach((p, i) => { if (p) s += label(p[0], p[1], Math.round(data[i].p) + '%', { fs: 9, pad: 2.5, fw: 'bold', maxX: W - 1 }); });
+  }
+  return s + '</svg>';
+}
+
+function breakdownTable(title, kind, file, rec){
+  let h = `<h3>${esc(title)}</h3>`;
+  if (!file) return h + `<div class="note">Upload <b>HourlySlsRpt${kind === 'line' ? 'ByLine' : 'ByDiv'}Csv</b> untuk melihat rincian.</div>`;
+  const recs = file.recs.filter(r => r.code === state.sel);
+  if (!recs.length) return h + `<div class="note">Tidak ada data ${kind === 'line' ? 'Line' : 'Division'} untuk store ${esc(state.sel)}. File berisi store: ${esc(file.stores.join(', '))}.</div>`;
+  const tot = recs.reduce((a, r) => a + r.sale, 0) || 1;
+  const maxS = Math.max(...recs.map(r => r.sale)) || 1;
+  h += `<div class="scroll"><table class="dt"><thead><tr><th>${kind === 'line' ? 'Line' : 'Division'}</th><th>Sales</th><th>Share</th><th>DB %</th><th>Last Yr %</th><th>Customer</th></tr></thead><tbody>`;
+  recs.forEach(r => {
+    h += `<tr><td>${esc(r.key)}</td><td><span class="bar" style="width:${Math.max(1, r.sale / maxS * 34).toFixed(0)}px"></span>${fInt(r.sale)}</td>` +
+         `<td>${fPct(r.sale / tot * 100, 1)}</td><td class="${r.db ? '' : 'na'}">${r.db ? fPct(r.db) : 'N/A'}</td>` +
+         `<td class="${r.ly ? '' : 'na'}">${r.ly ? fPct(r.ly) : 'N/A'}</td><td>${fInt(r.cust)}</td></tr>`;
+  });
+  h += `</tbody>`;
+  const single = file.stores.length === 1 && file.footer;
+  const F = single ? file.footer : null;
+  h += `<tfoot><tr><td>Total</td><td>${fInt(F ? F.sale : tot)}</td><td>100%</td><td>${F ? fPct(F.db) : '—'}</td><td>${F ? fPct(F.ly) : '—'}</td><td>${F ? fInt(F.cust) : '—'}</td></tr></tfoot></table></div>`;
+
+  // consistency notes
+  const notes = [];
+  const st = state.store && state.store.recs.find(r => r.code === state.sel);
+  if (kind === 'line' && st){
+    const ok = Math.abs(tot - st.sale) < 1;
+    notes.push(ok ? `<span class="ok">✓ Total Line = Store Sale di Store CSV (${fInt(st.sale)})</span>`
+                  : `<span class="warn">⚠ Total Line ${fInt(tot)} ≠ Store CSV ${fInt(st.sale)}</span>`);
+  }
+  if (kind === 'div'){
+    const lineNo = String(recs[0].key || '').charAt(0);
+    const lr = state.line && state.line.recs.find(r => r.code === state.sel && r.key === lineNo);
+    if (lr) notes.push(Math.abs(lr.sale - tot) < 1 ? `<span class="ok">✓ Division ini adalah rincian Line ${esc(lineNo)} (${fInt(lr.sale)})</span>`
+                                                   : `<span class="warn">⚠ Total Division ${fInt(tot)} ≠ Line ${esc(lineNo)} ${fInt(lr.sale)}</span>`);
+  }
+  notes.push('Customer per ' + (kind === 'line' ? 'line' : 'division') + ' tidak dijumlahkan (1 struk bisa lintas ' + (kind === 'line' ? 'line' : 'division') + '); total customer diambil dari baris total file.');
+  return h + `<div class="note">${notes.join('<br>')}</div>`;
+}
+
+function hourlyTable(rec, labels){
+  let h = `<h3>HOURLY DETAIL — ${rec ? esc(rec.code + ' ' + abbr(rec)) : '-'}</h3>`;
+  if (!rec) return h + `<div class="note">Upload <b>HourlySlsRptByStoreCsv</b>.</div>`;
+  const la = lastActive(rec);
+  let cum = 0;
+  h += `<div class="scroll"><table class="dt"><thead><tr><th>Periode</th><th>Sales</th><th>Kumulatif</th><th>DB %</th><th>Last Yr %</th><th>Customer</th></tr></thead><tbody>`;
+  rec.slots.forEach((x, i) => {
+    cum += x.sale;
+    const fut = i > la;
+    h += `<tr><td>${esc(labels[i])}</td><td>${fut ? '-' : fInt(x.sale)}</td><td>${fut ? '-' : fInt(cum)}</td>` +
+         `<td>${fut ? '-' : fPct(x.db)}</td><td>${fut ? '-' : (x.ly ? fPct(x.ly) : 'N/A')}</td><td>${fut ? '-' : fInt(x.cust)}</td></tr>`;
+  });
+  h += `</tbody><tfoot><tr><td>Total</td><td>${fInt(rec.sale)}</td><td></td><td>${fPct(rec.db)}</td><td>${rec.ly ? fPct(rec.ly) : 'N/A'}</td><td>${fInt(rec.cust)}</td></tr></tfoot></table></div>`;
+  h += `<div class="note">Last Yr % per periode = vs periode yang sama tahun lalu; Last Yr % total = vs penjualan 1 hari penuh tahun lalu.</div>`;
+  return h;
+}
+
+/* ================= main render ================= */
+function render(){
+  const S = state.store;
+  const labels = S ? S.labels : DEFAULT_SLOTS;
+  const all = S ? S.recs : [];
+  if (S && !all.some(r => r.code === state.sel)) state.sel = all.some(r => r.code === DEFAULT_STORE) ? DEFAULT_STORE : (all[0] && all[0].code);
+  const rec = all.find(r => r.code === state.sel) || null;
+  const tgt = state.target && rec ? state.target.by[rec.code] : null;
+
+  // store selector
+  const sel = $('sel');
+  sel.innerHTML = all.map(r => `<option value="${esc(r.code)}"${r.code === state.sel ? ' selected' : ''}>${esc(r.code)} ${esc(abbr(r))}</option>`).join('') || '<option>-</option>';
+
+  // target min: manual input wins, otherwise optional target file
+  const manual = numOrNull($('tmin').value);
+  const tmin = manual != null ? manual : (tgt && tgt.tm != null ? tgt.tm : null);
+
+  $('hdrL').textContent = rec ? `${abbr(rec)} ${rec.code} PERFORMANCE` : 'STORE PERFORMANCE';
+  $('gauge').innerHTML = renderGauge(rec, labels, tmin);
+  $('dYes').innerHTML = renderDonut(tgt ? { sales: tgt.ys, budget: tgt.yb } : null, '#3A7D22', '#A9C99B');
+  $('dMtd').innerHTML = renderDonut(tgt ? { sales: tgt.ms, budget: tgt.mb } : null, '#FFC000', '#D9C089');
+
+  const stores = all.filter(r => +r.code < 5000);   // 1001–10xx: physical stores (exclude Online 51xx, H&B 70xx)
+  $('tbl').innerHTML = renderTable(stores, state.sel);
+  $('chart').innerHTML = renderChart(stores, state.target);
+
+  $('pHour').innerHTML = hourlyTable(rec, labels);
+  $('pLine').innerHTML = breakdownTable(`LINE — ${rec ? rec.code + ' ' + abbr(rec) : '-'}`, 'line', state.line, rec);
+  $('pDiv').innerHTML = breakdownTable(`DIVISION — ${rec ? rec.code + ' ' + abbr(rec) : '-'}`, 'div', state.div, rec);
+
+  ['store', 'div', 'line', 'target'].forEach(k => $('c-' + k).classList.toggle('ok', !!state[k]));
+  fit();
+}
+
+/* ================= desktop scaling ================= */
+function fit(){
+  const wrap = $('wrap'), stage = $('stage'), det = $('detail');
+  if (window.innerWidth <= 760){ stage.style.transform = ''; wrap.style.width = wrap.style.height = det.style.width = ''; return; }
+  const wr = (window.innerWidth - 16) / 863;
+  const hr = (window.innerHeight - $('toolbar').offsetHeight - 16) / 701;
+  const sc = Math.max(Math.min(wr, hr), Math.min(wr, 1));
+  stage.style.transform = `scale(${sc})`;
+  wrap.style.width = (863 * sc) + 'px';
+  wrap.style.height = (701 * sc) + 'px';
+  det.style.width = Math.max(863 * sc, Math.min(window.innerWidth - 16, 1240)) + 'px';
+}
+
+/* ================= loading ================= */
+function load(text, name){
+  const r = parseReport(text);
+  state[r.type] = r;
+  state.raw[r.type] = text;
+  return r.type;
+}
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ raw: state.raw, sel: state.sel, tmin: $('tmin').value })); } catch (e) {}
+}
+async function handleFiles(files){
+  const msgs = [];
+  for (const f of files){
+    try { load(await f.text(), f.name); }
+    catch (e){ msgs.push(`${f.name}: ${e.message}`); }
+  }
+  $('msg').textContent = msgs.join(' · ');
+  render(); save();
+}
+
+$('file').addEventListener('change', e => { handleFiles([...e.target.files]); e.target.value = ''; });
+$('sel').addEventListener('change', e => { state.sel = e.target.value; render(); save(); });
+$('tmin').addEventListener('input', () => { render(); save(); });
+$('tbl').addEventListener('click', e => { const tr = e.target.closest('tr[data-code]'); if (tr){ state.sel = tr.dataset.code; render(); save(); } });
+$('reset').addEventListener('click', () => {
+  Object.assign(state, { store: null, div: null, line: null, target: null, raw: {}, sel: null });
+  $('tmin').value = ''; $('msg').textContent = '';
+  try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  render();
+});
+$('tpl').addEventListener('click', () => {
+  const codes = state.store ? state.store.recs.map(r => r.code) : Object.keys(STORE_ABBR);
+  const csv = 'Store Code,Yesterday Sales,Yesterday Budget,MTD Sales,MTD Budget,Target Min\n' + codes.map(c => c + ',,,,,').join('\n') + '\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'TargetBudget.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); document.body.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); document.body.classList.remove('drag'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles([...e.dataTransfer.files]); });
+window.addEventListener('resize', fit);
+
+// restore last upload (per-browser convenience only)
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+  if (saved){
+    Object.values(saved.raw || {}).forEach(t => { try { load(t); } catch (e) {} });
+    state.sel = saved.sel || null;
+    $('tmin').value = saved.tmin || '';
+  }
+} catch (e) {}
+render();
+})();
+</script>
+</body>
+</html>
