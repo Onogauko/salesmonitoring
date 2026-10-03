@@ -94,6 +94,7 @@ svg text{font-family:Arial,"Segoe UI",sans-serif}
   <span class="chip" id="c-target" title="Opsional: Yesterday Sales/Budget, MTD Sales/Budget, Target Min">Target (opsional)</span>
   <span class="sep"></span>
   <label>Store <select id="sel"></select></label>
+  <label title="Tanggal transaksi (tidak ada di CSV, isi manual)">Tanggal <input type="date" id="tdate"></label>
   <label title="Isi manual bila tidak ada di file target">Target Min % <input type="number" id="tmin" step="0.1" min="0" max="125" placeholder="N/A"></label>
   <button class="btn ghost" id="tpl" title="Unduh template CSV target/budget (kolom kosong untuk diisi)">Template Target</button>
   <button class="btn ghost" id="reset">Reset</button>
@@ -261,8 +262,8 @@ function lastActive(rec){
   return k;
 }
 
-function renderGauge(rec, labels, tmin){
-  const W = 526, H = 288, CX = 280, CY = 226, R = 124, TH = 23, BASE = 247, TOP = 66;
+function renderGauge(rec, labels, tmin, date){
+  const W = 526, H = 288, CX = 280, CY = 226, R = 124, TH = 23, BASE = 247, TOP = 82;
   const pd = p => 180 - Math.max(0, Math.min(GAUGE_MAX, p)) / GAUGE_MAX * 180;
   let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
 
@@ -276,7 +277,11 @@ function renderGauge(rec, labels, tmin){
   // customer top-right
   s += `<text x="516" y="31" text-anchor="end" font-size="15" font-weight="bold" font-style="italic" fill="#fff">` +
        `Customer No<tspan dx="10">${rec ? fInt(rec.cust) : '-'}</tspan></text>`;
-  if (rec) s += `<text x="516" y="48" text-anchor="end" font-size="10.5" fill="#bdbdbd">DB % ${fPct(rec.db)}   ·   Last Yr ${rec.ly ? fPct(rec.ly) : 'N/A'}</text>`;
+  s += `<text x="9" y="57" font-size="13" font-weight="bold" fill="#fff">DB %</text>`;
+  s += `<text x="100" y="57" font-size="13" font-weight="bold" fill="#fff">${rec ? fPct(rec.db) : '-'}</text>`;
+  s += `<text x="9" y="75" font-size="13" font-weight="bold" fill="#fff">Last Yr</text>`;
+  s += `<text x="100" y="75" font-size="13" font-weight="bold" fill="#fff">${rec && rec.ly ? fPct(rec.ly) : (rec ? 'N/A' : '-')}</text>`;
+  if (date) s += `<text x="516" y="48" text-anchor="end" font-size="10.5" fill="#bdbdbd">Sales Transaction Date: ${esc(date)}</text>`;
 
   // gauge arc
   const N = 120;
@@ -315,7 +320,7 @@ function renderGauge(rec, labels, tmin){
   // needle + value
   if (rec){
     const v = rec.db, a = pd(v);
-    const [x1, y1] = P(CX, CY, 46, a), [x2, y2] = P(CX, CY, R + 6, a), [tx, ty] = P(CX, CY, R + 20, a);
+    const [x1, y1] = P(CX, CY, 66, a), [x2, y2] = P(CX, CY, R + 6, a), [tx, ty] = P(CX, CY, R + 20, a);
     s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--needle)" stroke-width="4.5"><title>DB % (pencapaian vs budget harian): ${fPct(v)}</title></line>`;
     s += `<text x="${tx.toFixed(1)}" y="${(ty + 4).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" font-style="italic" fill="#fff">${fPct(v, 1)}</text>`;
     s += `<text x="${CX}" y="${CY - 18}" text-anchor="middle" font-size="17" font-weight="bold" font-style="italic" fill="#fff">${fInt(rec.sale)}</text>`;
@@ -504,7 +509,7 @@ function render(){
   const tmin = manual != null ? manual : (tgt && tgt.tm != null ? tgt.tm : null);
 
   $('hdrL').textContent = rec ? `${abbr(rec)} ${rec.code} PERFORMANCE` : 'STORE PERFORMANCE';
-  $('gauge').innerHTML = renderGauge(rec, labels, tmin);
+  $('gauge').innerHTML = renderGauge(rec, labels, tmin, $('tdate').value);
   $('dYes').innerHTML = renderDonut(tgt ? { sales: tgt.ys, budget: tgt.yb } : null, '#3A7D22', '#A9C99B');
   $('dMtd').innerHTML = renderDonut(tgt ? { sales: tgt.ms, budget: tgt.mb } : null, '#FFC000', '#D9C089');
 
@@ -541,7 +546,7 @@ function load(text, name){
   return r.type;
 }
 function save(){
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ raw: state.raw, sel: state.sel, tmin: $('tmin').value })); } catch (e) {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ raw: state.raw, sel: state.sel, tmin: $('tmin').value, tdate: $('tdate').value })); } catch (e) {}
 }
 async function handleFiles(files){
   const msgs = [];
@@ -556,6 +561,7 @@ async function handleFiles(files){
 $('file').addEventListener('change', e => { handleFiles([...e.target.files]); e.target.value = ''; });
 $('sel').addEventListener('change', e => { state.sel = e.target.value; render(); save(); });
 $('tmin').addEventListener('input', () => { render(); save(); });
+$('tdate').addEventListener('input', () => { render(); save(); });
 $('tbl').addEventListener('click', e => { const tr = e.target.closest('tr[data-code]'); if (tr){ state.sel = tr.dataset.code; render(); save(); } });
 $('reset').addEventListener('click', () => {
   Object.assign(state, { store: null, div: null, line: null, target: null, raw: {}, sel: null });
@@ -576,6 +582,7 @@ $('tpl').addEventListener('click', () => {
 document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles([...e.dataTransfer.files]); });
 window.addEventListener('resize', fit);
 
+{ const d = new Date(); $('tdate').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // restore last upload (per-browser convenience only)
 try {
   const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
@@ -583,6 +590,7 @@ try {
     Object.values(saved.raw || {}).forEach(t => { try { load(t); } catch (e) {} });
     state.sel = saved.sel || null;
     $('tmin').value = saved.tmin || '';
+    if (saved.tdate) $('tdate').value = saved.tdate;
   }
 } catch (e) {}
 render();
