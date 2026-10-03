@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hourly Sales Inquiry</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:#000;font:12px Verdana,Tahoma,Arial,sans-serif}
+
+/* toolbar */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;background:#f4f4f4;border-bottom:1px solid #c8c8c8}
+.toolbar input[type=date]{font:12px Verdana,Tahoma,Arial,sans-serif;padding:1px 3px;border:1px solid #a9a9a9}
+.chip{padding:2px 6px;border:1px solid #c8c8c8;color:#888;background:#fff;font-size:11px}
+.chip.ok{border-color:#6aa84f;color:#2f6b1c}
+.chip.ok::before{content:"\2713  "}
+.msg{color:#c00;font-size:11px}
+.hint{color:#666;font-size:11px}
+body.drag .toolbar{background:#fff6cc}
+
+.btn{font:12px Verdana,Tahoma,Arial,sans-serif;color:#000;background:linear-gradient(#fdfdfd,#e6e6e6);border:1px solid #8f8f8f;border-radius:3px;padding:2px 8px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:linear-gradient(#f0f6fd,#d8e7f8);border-color:#3c7fb1}
+.btn:active{background:#d8e7f8}
+.btn.on{background:#d8e7f8;border-color:#3c7fb1;font-weight:bold}
+
+/* layout */
+.wrap{position:relative;overflow:hidden;margin:0 auto}
+.page{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:6px;padding:3px;width:1414px;transform-origin:0 0}
+.left{flex:0 0 686px;min-width:0}
+.right{flex:0 0 716px;min-width:0}
+
+/* hourly detail pop-up */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:10;padding:10px}
+.modal.open{display:flex}
+.mbox{background:#fff;border:1px solid #7f9db9;box-shadow:0 4px 18px rgba(0,0,0,.35);width:720px;max-width:100%;max-height:100%;overflow:auto;padding:4px}
+.mhead{display:flex;justify-content:flex-end;margin-bottom:2px}
+.scroll{overflow-x:auto}
+
+/* section title + date bar */
+.stitle{display:flex;align-items:center;gap:4px;color:#039;font-weight:bold;font-size:12.5px;margin:2px 0 1px}
+.stitle::after{content:"";flex:1;border-top:1px solid #9a9a9a}
+.datebar{background:#d6e3f5;border:1px solid #a7bfdf;font-weight:bold;padding:2px 3px;font-size:12.5px}
+
+/* report table */
+table.rpt{border-collapse:collapse;width:100%;background:#fff}
+.rpt th{font-weight:bold;text-align:center;border:1px solid #c6c6c6;padding:3px 4px;line-height:1.15;background:#fff}
+.rpt td{border-left:1px solid #d4d4d4;border-right:1px solid #d4d4d4;padding:2px 4px;vertical-align:middle;height:26px}
+.rpt tbody tr:nth-child(even) td{background:#f2f2f2}
+.rpt tbody tr{border-bottom:1px solid #ececec}
+.rpt td.c{text-align:center}
+.rpt td.n{text-align:right;white-space:nowrap}
+.rpt td.nm{width:106px;min-width:106px;max-width:110px;line-height:1.15}
+.rpt td.b{width:54px;text-align:center}
+.rpt tfoot td{border:1px solid #d4d4d4;height:24px;background:#fff}
+.rpt tfoot td.lbl{text-align:center}
+.empty{padding:10px;border:1px solid #c6c6c6;border-top:0;color:#666}
+.gap{height:8px}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label class="btn" for="file">Upload CSV</label>
+  <input type="file" id="file" accept=".csv,text/csv" multiple hidden>
+  <span class="chip" id="c-store">Store</span>
+  <span class="chip" id="c-line">Line</span>
+  <span class="chip" id="c-div">Division</span>
+  <label>Sales Transaction Date <input type="date" id="tdate"></label>
+  <button class="btn" id="reset">Reset</button>
+  <span class="hint">Pilih / seret 3 file CSV (Store, Line, Division) sekaligus.</span>
+  <span class="msg" id="msg"></span>
+</div>
+
+<div class="wrap" id="wrap"><div class="page" id="page">
+  <div class="left">
+    <div class="stitle">Hourly Sales Inquiry By Store</div>
+    <div class="datebar">Sales Transaction Date : <span class="dt"></span></div>
+    <div class="scroll" id="tStore"></div>
+  </div>
+  <div class="right">
+    <div class="stitle">Hourly Sales Inquiry By Store</div>
+    <div class="datebar">Sales Transaction Date : <span class="dt"></span></div>
+    <div class="scroll" id="tLine"></div>
+    <div class="gap"></div>
+    <div class="stitle">Hourly Sales Inquiry By Section</div>
+    <div class="datebar">Sales Transaction Date : <span class="dt"></span></div>
+    <div class="scroll" id="tDiv"></div>
+  </div>
+</div></div>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <div class="mhead"><button class="btn" id="mclose">Close</button></div>
+    <div class="stitle" id="hTitle">Hourly Sales Inquiry Detail</div>
+    <div class="datebar">Sales Transaction Date : <span class="dt"></span></div>
+    <div class="scroll" id="tHour"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const MAX_STORE = 1014;          // tampilkan store 1001 s/d 1014 saja
+const LS_KEY = 'slsinq:v1';
+const DEFAULT_SLOTS = ['08:00 - 11:59','12:00 - 13:59','14:00 - 15:59','16:00 - 17:59',
+  '18:00 - 19:59','20:00 - 21:59','22:00 - 23:59','24:00'];
+
+const state = { store:null, line:null, div:null, raw:{}, sel:null, detail:null };
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fAmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fPct = n => n.toFixed(2);
+const fCnt = n => Math.round(n).toLocaleString('en-US');
+const num = v => { if (v == null) return 0; const t = String(v).trim().replace(/,/g, ''); if (t === '') return 0; const n = Number(t); return isFinite(n) ? n : 0; };
+
+function parseCSV(text){
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (q){
+      if (c === '"'){ if (text[i+1] === '"'){ f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r'){
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(f); rows.push(row); row = []; f = '';
+    } else f += c;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+/* Columns are located from header row 2, because the group labels in row 1
+   are offset from the data columns. */
+function parseReport(text){
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error('file kosong');
+  const h0 = rows[0].map(s => s.trim()), h1 = rows[1].map(s => s.trim());
+  const ti = h1.indexOf('Store Sale $');
+  if (ti < 0) throw new Error('bukan file HourlySlsRpt (kolom "Store Sale $" tidak ada)');
+  const type = h0[3] === 'Division' ? 'div' : h0[3] === 'Line' ? 'line' : 'store';
+  const gi = h1.indexOf('Grand Sales');
+  const slotIdx = [];
+  h1.forEach((h, i) => { if (i > ti && h === 'Sale $') slotIdx.push(i); });
+  let labels = h0.filter(s => /\d{1,2}:\d{2}/.test(s));
+  if (labels.length !== slotIdx.length) labels = DEFAULT_SLOTS.slice(0, slotIdx.length);
+  labels = labels.map(l => l.replace(/\b(\d):(\d{2})/g, '0$1:$2'));
+
+  const pick = r => ({
+    sale: num(r[ti]), db: num(r[ti+1]), ly: num(r[ti+2]), cust: num(r[ti+3]),
+    grand: gi >= 0 ? num(r[gi]) : null,
+    slots: slotIdx.map(i => ({ sale: num(r[i]), db: num(r[i+1]), ly: num(r[i+2]), cust: num(r[i+3]) }))
+  });
+  const recs = []; let footer = null;
+  for (const r of rows.slice(2)){
+    const c0 = (r[0] || '').trim();
+    if (/total/i.test(c0)) { footer = Object.assign({ label: c0 }, pick(r)); continue; }
+    if (!(r[1] || '').trim()) continue;
+    recs.push(Object.assign({
+      company: c0, code: (r[1] || '').trim(), name: (r[2] || '').trim(),
+      key: type === 'store' ? null : (r[3] || '').trim()
+    }, pick(r)));
+  }
+  return { type, labels, recs, footer, stores: [...new Set(recs.map(r => r.code))] };
+}
+
+/* ---------- tables ---------- */
+const btn = (attrs, on) => `<button class="btn${on ? ' on' : ''}" ${attrs}>Detail</button>`;
+
+function storeTable(){
+  const S = state.store;
+  const head = `<table class="rpt"><thead>
+    <tr><th rowspan="2" style="width:62px">Company<br>Name</th><th rowspan="2" style="width:40px">Store<br>Code</th>
+        <th rowspan="2" colspan="2">Store Name</th><th colspan="4">Total</th></tr>
+    <tr><th>Store Sales</th><th style="width:78px">D.B. %</th><th style="width:80px">Last Yr<br>Sales %</th>
+        <th style="width:84px">Customer<br>Number</th></tr></thead>`;
+  if (!S) return head + `</table><div class="empty">Belum ada data. Upload <b>HourlySlsRptByStoreCsv</b>.</div>`;
+  const recs = S.recs.filter(r => +r.code <= MAX_STORE);
+  let h = head + '<tbody>';
+  recs.forEach((r, i) => {
+    const sel = state.detail && state.detail.kind === 'store' && state.detail.code === r.code;
+    h += `<tr>
+      <td class="c">${i === 0 ? esc(r.company) : ''}</td><td class="c">${esc(r.code)}</td>
+      <td class="nm">${esc(r.name)}</td><td class="b">${btn(`data-kind="store" data-code="${esc(r.code)}"`, sel)}</td>
+      <td class="n">${fAmt(r.sale)}</td><td class="n">${fPct(r.db)}</td><td class="n">${fPct(r.ly)}</td>
+      <td class="n">${fCnt(r.cust)}</td></tr>`;
+  });
+  return h + '</tbody></table>';
+}
+
+function subTable(kind){
+  const F = state[kind];
+  const label = kind === 'line' ? 'Line' : 'Division';
+  const head = `<table class="rpt"><thead>
+    <tr><th rowspan="2" style="width:62px">Company<br>Name</th><th rowspan="2" style="width:40px">Store<br>Code</th>
+        <th rowspan="2" style="width:110px">Store Name</th><th rowspan="2" colspan="2">${label}</th><th colspan="4">Total</th></tr>
+    <tr><th>Store Sales</th><th style="width:78px">D.B. %</th><th style="width:80px">Last Yr<br>Sales %</th><th style="width:84px">Customer<br>Number</th></tr></thead>`;
+  if (!F) return head + `</table><div class="empty">Belum ada data. Upload <b>HourlySlsRptBy${kind === 'line' ? 'Line' : 'Div'}Csv</b>.</div>`;
+  const recs = F.recs.filter(r => r.code === state.sel);
+  if (!recs.length) return head + `</table><div class="empty">Tidak ada data ${label} untuk store ${esc(state.sel || '-')}. File ini berisi store: ${esc(F.stores.join(', '))}.</div>`;
+  let h = head + '<tbody>';
+  recs.forEach((r, i) => {
+    const sel = state.detail && state.detail.kind === kind && state.detail.code === r.code && state.detail.key === r.key;
+    h += `<tr>
+      <td class="c">${i === 0 ? esc(r.company) : ''}</td><td class="c">${i === 0 ? esc(r.code) : ''}</td>
+      <td class="nm">${i === 0 ? esc(r.name) : ''}</td>
+      <td class="c" style="width:58px">${esc(r.key)}</td><td class="b">${btn(`data-kind="${kind}" data-code="${esc(r.code)}" data-key="${esc(r.key)}"`, sel)}</td>
+      <td class="n">${fAmt(r.sale)}</td><td class="n">${fPct(r.db)}</td><td class="n">${fPct(r.ly)}</td><td class="n">${fCnt(r.cust)}</td></tr>`;
+  });
+  h += '</tbody>';
+  // footer row from the file when it holds only this store; customers are not additive across lines/divisions
+  const T = F.stores.length === 1 && F.footer ? F.footer : null;
+  const sum = recs.reduce((a, r) => a + r.sale, 0);
+  h += `<tfoot><tr><td class="lbl" colspan="5">${kind === 'line' ? 'Store Total' : 'Division Total'}</td>
+    <td class="n">${fAmt(T ? T.sale : sum)}</td><td class="n">${T ? fPct(T.db) : ''}</td>
+    <td class="n">${T ? fPct(T.ly) : ''}</td><td class="n">${T ? fCnt(T.cust) : ''}</td></tr></tfoot>`;
+  return h + '</table>';
+}
+
+function hourTable(){
+  const d = state.detail;
+  const F = d && state[d.kind];
+  const rec = F && F.recs.find(r => r.code === d.code && (d.kind === 'store' || r.key === d.key));
+  const head = `<table class="rpt"><thead><tr><th>Time</th><th>Sales</th><th style="width:78px">D.B. %</th>
+    <th style="width:80px">Last Yr<br>Sales %</th><th style="width:84px">Customer<br>Number</th></tr></thead>`;
+  if (!rec){
+    $('hTitle').textContent = 'Hourly Sales Inquiry Detail';
+    return head + `</table><div class="empty">Klik tombol <b>Detail</b> pada Store, Line, atau Division untuk melihat penjualan per jam.</div>`;
+  }
+  $('hTitle').textContent = `Hourly Sales Inquiry Detail — ${rec.code} ${rec.name}` +
+    (d.kind === 'line' ? ` · Line ${rec.key}` : d.kind === 'div' ? ` · Division ${rec.key}` : '');
+  let h = head + '<tbody>';
+  rec.slots.forEach((x, i) => {
+    h += `<tr><td class="c">${esc(F.labels[i])}</td><td class="n">${fAmt(x.sale)}</td><td class="n">${fPct(x.db)}</td>
+      <td class="n">${fPct(x.ly)}</td><td class="n">${fCnt(x.cust)}</td></tr>`;
+  });
+  h += `</tbody><tfoot><tr><td class="lbl">Total</td><td class="n">${fAmt(rec.sale)}</td><td class="n">${fPct(rec.db)}</td>
+    <td class="n">${fPct(rec.ly)}</td><td class="n">${fCnt(rec.cust)}</td></tr></tfoot></table>`;
+  return h;
+}
+
+/* ---------- render ---------- */
+function render(){
+  // default store = the one present in the Line/Division file, else the first store
+  const known = new Set([...(state.store ? state.store.recs.map(r => r.code) : []),
+                         ...(state.line ? state.line.stores : []), ...(state.div ? state.div.stores : [])]);
+  if (!state.sel || !known.has(state.sel))
+    state.sel = (state.line && state.line.stores[0]) || (state.div && state.div.stores[0]) ||
+                (state.store && state.store.recs[0] && state.store.recs[0].code) || null;
+
+  const d = $('tdate').value;
+  document.querySelectorAll('.dt').forEach(e => e.textContent = d || '-');
+  $('tStore').innerHTML = storeTable();
+  $('tLine').innerHTML = subTable('line');
+  $('tDiv').innerHTML = subTable('div');
+  $('tHour').innerHTML = hourTable();
+  ['store', 'line', 'div'].forEach(k => $('c-' + k).classList.toggle('ok', !!state[k]));
+  fit();
+}
+
+/* scale the side-by-side layout so everything fits one screen */
+function fit(){
+  const page = $('page'), wrap = $('wrap');
+  page.style.transform = '';
+  const w = page.offsetWidth, h = page.offsetHeight;
+  const avW = document.documentElement.clientWidth - 2;
+  const avH = window.innerHeight - document.querySelector('.toolbar').offsetHeight - 2;
+  const sc = Math.min(avW / w, avH / h, 1.4);
+  page.style.transform = `scale(${sc})`;
+  wrap.style.width = (w * sc) + 'px';
+  wrap.style.height = (h * sc) + 'px';
+}
+window.addEventListener('resize', fit);
+const closeModal = () => $('modal').classList.remove('open');
+$('mclose').addEventListener('click', closeModal);
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-kind]');
+  if (!b) return;
+  const kind = b.dataset.kind;
+  state.detail = { kind, code: b.dataset.code, key: b.dataset.key || null };
+  if (kind === 'store') state.sel = b.dataset.code;
+  render(); save();
+  $('modal').classList.add('open');
+});
+
+/* ---------- loading ---------- */
+function load(text){
+  const r = parseReport(text);
+  state[r.type] = r;
+  state.raw[r.type] = text;
+}
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ raw: state.raw, sel: state.sel, tdate: $('tdate').value })); } catch (e) {}
+}
+async function handleFiles(files){
+  const msgs = [];
+  for (const f of files){
+    try { load(await f.text()); } catch (e){ msgs.push(`${f.name}: ${e.message}`); }
+  }
+  $('msg').textContent = msgs.join(' · ');
+  state.detail = null;
+  render(); save();
+}
+
+$('file').addEventListener('change', e => { handleFiles([...e.target.files]); e.target.value = ''; });
+$('tdate').addEventListener('input', () => { render(); save(); });
+$('reset').addEventListener('click', () => {
+  Object.assign(state, { store: null, line: null, div: null, raw: {}, sel: null, detail: null });
+  $('msg').textContent = '';
+  try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  render();
+});
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); document.body.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); document.body.classList.remove('drag'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) handleFiles([...e.dataTransfer.files]); });
+
+{ const d = new Date(); $('tdate').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+  if (saved){
+    Object.values(saved.raw || {}).forEach(t => { try { load(t); } catch (e) {} });
+    state.sel = saved.sel || null;
+    if (saved.tdate) $('tdate').value = saved.tdate;
+  }
+} catch (e) {}
+render();
+})();
+</script>
+</body>
+</html>
